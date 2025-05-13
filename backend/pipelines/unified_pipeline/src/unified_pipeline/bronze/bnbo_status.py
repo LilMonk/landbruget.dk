@@ -1,3 +1,4 @@
+import asyncio
 import os
 import ssl
 import xml.etree.ElementTree as ET
@@ -217,16 +218,32 @@ class BNBOStatusBronze(BaseSource[BNBOStatusBronzeConfig]):
                 fetched_features_count = returned_features
                 self.log.info(f"Fetched {fetched_features_count} out of {total_features}")
 
+                # Create a list of tasks for all remaining chunks to fetch
+                tasks = []
                 for start_index in range(returned_features, total_features, self.config.batch_size):
-                    try:
-                        raw_data = await self._fetch_chunck(session, start_index)
-                        raw_features.append(raw_data["text"])
-                        fetched_features_count += raw_data["returned_features"]
-                        self.log.info(f"Fetched {fetched_features_count} out of {total_features}")
-                    except Exception as e:
-                        self.log.error(f"Error occured while fetching chunk: {e}")
-                        raise e
+                    tasks.append(self._fetch_chunck(session, start_index))
 
+                # Fetch all chunks in parallel using asyncio.gather
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process the results
+                for result in results:
+                    if isinstance(result, Exception):
+                        self.log.error(f"Error occurred while fetching chunk: {result}")
+                        raise result
+
+                    if isinstance(result, dict):
+                        raw_features.append(result["text"])
+                        fetched_features_count += result["returned_features"]
+                        self.log.debug(
+                            f"Processed chunk with {result['returned_features']} features"
+                        )
+                    else:
+                        self.log.error(f"Unexpected result type: {type(result)}")
+
+                self.log.info(
+                    f"Fetched all {fetched_features_count} out of {total_features} features"
+                )
                 return raw_features
             except Exception as e:
                 self.log.error(f"Error occured while fetching chunk: {e}")
