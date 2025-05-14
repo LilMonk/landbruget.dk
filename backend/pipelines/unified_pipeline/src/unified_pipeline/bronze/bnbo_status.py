@@ -1,12 +1,10 @@
 import asyncio
-import os
 import ssl
 import xml.etree.ElementTree as ET
 from asyncio import Semaphore
 from typing import Optional
 
 import aiohttp
-import pandas as pd
 from pydantic import ConfigDict
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
@@ -85,7 +83,6 @@ class BNBOStatusBronze(BaseSource[BNBOStatusBronzeConfig]):
             gcs_util (GCSUtil): Utility for interacting with Google Cloud Storage.
         """
         super().__init__(config, gcs_util)
-        self.config = config
 
     def _get_params(self, start_index: int = 0) -> dict:
         """
@@ -249,49 +246,6 @@ class BNBOStatusBronze(BaseSource[BNBOStatusBronzeConfig]):
                 self.log.error(f"Error occured while fetching chunk: {e}")
                 raise e
 
-    async def _save_raw_data(self, raw_data: list[str], dataset: str) -> None:
-        """
-        Save raw XML data to Google Cloud Storage.
-
-        This method creates a DataFrame with the raw XML data and metadata,
-        saves it as a parquet file locally, then uploads it to Google Cloud Storage.
-
-        Args:
-            raw_data (list[str]): A list of XML strings to save.
-            dataset (str): The name of the dataset, used to determine the save path.
-
-        Returns:
-            None
-
-        Raises:
-            Exception: If there are issues saving the data.
-
-        Note:
-            The data is saved in the bronze layer, which contains raw, unprocessed data.
-            The file is named with the current date in YYYY-MM-DD format.
-        """
-        bucket = self.gcs_util.get_gcs_client().bucket(self.config.bucket)
-        df = pd.DataFrame(
-            {
-                "payload": raw_data,
-            }
-        )
-        df["source"] = self.config.name
-        df["created_at"] = pd.Timestamp.now()
-        df["updated_at"] = pd.Timestamp.now()
-
-        temp_dir = f"/tmp/bronze/{dataset}"
-        os.makedirs(temp_dir, exist_ok=True)
-        current_date = pd.Timestamp.now().strftime("%Y-%m-%d")
-        temp_file = f"{temp_dir}/{current_date}.parquet"
-        working_blob = bucket.blob(f"bronze/{dataset}/{current_date}.parquet")
-
-        df.to_parquet(temp_file)
-        working_blob.upload_from_filename(temp_file)
-        self.log.info(
-            f"Uploaded to: gs://{self.config.bucket}/bronze/{dataset}/{current_date}.parquet"
-        )
-
     async def run(self) -> None:
         """
         Run the complete BNBO status bronze layer job.
@@ -315,5 +269,5 @@ class BNBOStatusBronze(BaseSource[BNBOStatusBronzeConfig]):
             self.log.error("Failed to fetch raw data")
             return
         self.log.info("Fetched raw data successfully")
-        await self._save_raw_data(raw_data, self.config.dataset)
+        self._save_raw_data(raw_data, self.config.dataset, self.config.name, self.config.bucket)
         self.log.info("Saved raw data successfully")

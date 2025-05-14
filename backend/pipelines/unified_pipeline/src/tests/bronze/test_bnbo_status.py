@@ -295,7 +295,8 @@ async def test_save_raw_data(
     with patch(
         "unified_pipeline.bronze.bnbo_status.pd.DataFrame", return_value=mock_df
     ) as mock_pd_dataframe:
-        await bnbo_status_bronze._save_raw_data(raw_data_list, dataset_name)
+        config = bnbo_status_bronze.config
+        bnbo_status_bronze._save_raw_data(raw_data_list, dataset_name, config.name, config.bucket)
 
         mock_pd_dataframe.assert_called_once_with(
             {
@@ -323,6 +324,7 @@ async def test_run_success(bnbo_status_bronze: BNBOStatusBronze) -> None:
     await bnbo_status_bronze.run()
 
     bnbo_status_bronze._fetch_raw_data.assert_called_once()
+    config = bnbo_status_bronze.config
     bnbo_status_bronze._save_raw_data.assert_called_once_with(
-        ["<xml_payload>"], bnbo_status_bronze.config.dataset
+        ["<xml_payload>"], config.dataset, config.name, config.bucket
     )

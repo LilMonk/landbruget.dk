@@ -70,16 +70,16 @@ def execute(cli_config: cli.CliConfig) -> None:
                 config=AgriculturalFieldsBronzeConfig(),
                 gcs_util=gcs_util,
             )
-        # if cli_config.stage == cli.Stage.silver or cli_config.stage == cli.Stage.all:
-        #     from unified_pipeline.silver.agricultural_fields import (
-        #         AgriculturalFieldsSilver,
-        #         AgriculturalFieldsSilverConfig,
-        #     )
+        if cli_config.stage == cli.Stage.silver or cli_config.stage == cli.Stage.all:
+            from unified_pipeline.silver.agricultural_fields import (
+                AgriculturalFieldsSilver,
+                AgriculturalFieldsSilverConfig,
+            )
 
-        #     source = AgriculturalFieldsSilver(
-        #         config=AgriculturalFieldsSilverConfig(),
-        #         gcs_util=gcs_util,
-        #     )
+            source = AgriculturalFieldsSilver(
+                config=AgriculturalFieldsSilverConfig(),
+                gcs_util=gcs_util,
+            )
     else:
         raise ValueError(f"Source {cli_config.source} and stage {cli_config.stage} not supported.")
 

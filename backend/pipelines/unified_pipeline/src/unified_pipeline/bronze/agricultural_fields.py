@@ -1,11 +1,9 @@
 import asyncio
 import json
-import os
 import ssl
 from asyncio import Semaphore
 
 import aiohttp
-import pandas as pd
 from pydantic import ConfigDict
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
@@ -28,9 +26,11 @@ class AgriculturalFieldsBronzeConfig(BaseJobConfig):
     blocks_url: str = (
         "https://kort.vd.dk/server/rest/services/Grunddata/Marker_og_Markblokke/MapServer/6/query"
     )
+    fields_dataset: str = "agricultural_fields"
+    blocks_dataset: str = "agricultural_blocks"
     frequency: str = "weekly"
     enabled: bool = True
-    bucket: str = "rahul_apeability"
+    bucket: str = "landbrugsdata-raw-data"
 
     batch_size: int = 20000
     max_concurrent: int = 5
@@ -41,20 +41,6 @@ class AgriculturalFieldsBronzeConfig(BaseJobConfig):
         total=1200, connect=60, sock_read=540
     )
     request_semaphore: Semaphore = Semaphore(max_concurrent)
-    column_mapping: dict[str, str] = {
-        "Marknr": "field_id",
-        "IMK_areal": "area_ha",
-        "Journalnr": "journal_number",
-        "CVR": "cvr_number",
-        "Afgkode": "crop_code",
-        "Afgroede": "crop_type",
-        "GB": "organic_farming",
-        "GBanmeldt": "reported_area_ha",
-        "Markblok": "block_id",
-        "MB_NR": "block_id",
-        "BLOKAREAL": "block_area_ha",
-        "MARKBLOKTY": "block_type",
-    }
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
@@ -62,7 +48,6 @@ class AgriculturalFieldsBronzeConfig(BaseJobConfig):
 class AgriculturalFieldsBronze(BaseSource[AgriculturalFieldsBronzeConfig]):
     def __init__(self, config: AgriculturalFieldsBronzeConfig, gcs_util: GCSUtil):
         super().__init__(config, gcs_util)
-        self.config = config
 
     async def _get_total_count(self, session: aiohttp.ClientSession, url: str) -> int:
         """Get total number of features for a specific endpoint"""
@@ -71,15 +56,16 @@ class AgriculturalFieldsBronze(BaseSource[AgriculturalFieldsBronzeConfig]):
         try:
             self.log.info(f"Fetching total count from {url}")
             async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    total = data.get("count", 0)
-                    return int(total)
-                else:
-                    response_text = await response.text()
-                    raise Exception(
-                        f"Error getting count for {url}: {response.status} - {response_text}"
-                    )
+                async with AsyncTimer(f"Request total count from {url}"):
+                    if response.status == 200:
+                        data = await response.json()
+                        total = data.get("count", 0)
+                        return int(total)
+                    else:
+                        response_text = await response.text()
+                        raise Exception(
+                            f"Error getting count for {url}: {response.status} - {response_text}"
+                        )
         except Exception as e:
             raise Exception(f"Error getting total count for {url}: {str(e)}")
 
@@ -115,50 +101,6 @@ class AgriculturalFieldsBronze(BaseSource[AgriculturalFieldsBronzeConfig]):
                     self.log.error(err_msg)
                     raise Exception(err_msg)
 
-    async def _save_raw_data(self, raw_data: list[str], dataset: str) -> None:
-        """
-        Save raw JSON data to Google Cloud Storage.
-
-        This method creates a DataFrame with the raw JSON data and metadata,
-        saves it as a parquet file locally, then uploads it to Google Cloud Storage.
-
-        Args:
-            raw_data (list[str]): A list of JSON strings to save.
-            dataset (str): The name of the dataset, used to determine the save path.
-
-        Returns:
-            None
-
-        Raises:
-            Exception: If there are issues saving the data.
-
-        Note:
-            The data is saved in the bronze layer, which contains raw, unprocessed data.
-            The file is named with the current date in YYYY-MM-DD format.
-        """
-        self.log.info(f"Saving raw data for {dataset} to GCS")
-        bucket = self.gcs_util.get_gcs_client().bucket(self.config.bucket)
-        df = pd.DataFrame(
-            {
-                "payload": raw_data,
-            }
-        )
-        df["source"] = self.config.name
-        df["created_at"] = pd.Timestamp.now()
-        df["updated_at"] = pd.Timestamp.now()
-
-        temp_dir = f"/tmp/bronze/{dataset}"
-        os.makedirs(temp_dir, exist_ok=True)
-        current_date = pd.Timestamp.now().strftime("%Y-%m-%d")
-        temp_file = f"{temp_dir}/{current_date}.parquet"
-        working_blob = bucket.blob(f"bronze/{dataset}/{current_date}.parquet")
-
-        df.to_parquet(temp_file)
-        working_blob.upload_from_filename(temp_file)
-        self.log.info(
-            f"Uploaded to: gs://{self.config.bucket}/bronze/{dataset}/{current_date}.parquet"
-        )
-
     async def _process_data(self, url: str, dataset: str) -> None:
         """
         Process data from the specified URL and save it to Google Cloud Storage.
@@ -180,20 +122,22 @@ class AgriculturalFieldsBronze(BaseSource[AgriculturalFieldsBronzeConfig]):
         async with aiohttp.ClientSession(
             timeout=self.config.timeout_config, connector=connector
         ) as session:
-            total_count = await self._get_total_count(session, url)
-            self.log.info(f"Total count: {total_count}")
+            async with AsyncTimer(f"Processing data for {dataset}"):
+                total_count = await self._get_total_count(session, url)
+                self.log.info(f"Total count: {total_count}")
 
-            if total_count == 0:
-                self.log.warning("No data to process.")
-                return
+                if total_count == 0:
+                    self.log.warning("No data to process.")
+                    return
 
-            tasks = []
-            for start_index in range(0, total_count, self.config.batch_size):
-                tasks.append(self._fetch_chunk(session, url, start_index))
+                tasks = []
+                for start_index in range(0, total_count, self.config.batch_size):
+                    tasks.append(self._fetch_chunk(session, url, start_index))
 
-            raw_data = await asyncio.gather(*tasks)
-            await self._save_raw_data(raw_data, dataset)
-            self.log.info(f"Data processing completed for {dataset}")
+                raw_data = await asyncio.gather(*tasks)
+                self.log.info(f"Saving data to GCS for {dataset}")
+                self._save_raw_data(raw_data, dataset, self.config.name, self.config.bucket)
+                self.log.info(f"Data processing completed for {dataset}")
 
     async def run(self) -> None:
         """
@@ -205,11 +149,9 @@ class AgriculturalFieldsBronze(BaseSource[AgriculturalFieldsBronzeConfig]):
         Returns:
             None
         """
-        if not self.config.enabled:
-            self.log.warning("Source is disabled. Skipping run.")
-            return
+        self.log.info("Running Agricultural Fields bronze job")
+        async with AsyncTimer("Total run time"):
+            await self._process_data(self.config.fields_url, self.config.fields_dataset)
+            await self._process_data(self.config.blocks_url, self.config.blocks_dataset)
 
-        await self._process_data(self.config.fields_url, "agricultural_fields")
-        await self._process_data(self.config.blocks_url, "agricultural_blocks")
-        self.log.info("Data processing completed for all datasets")
-        self.log.info("Run completed successfully.")
+            self.log.info("Run completed successfully.")

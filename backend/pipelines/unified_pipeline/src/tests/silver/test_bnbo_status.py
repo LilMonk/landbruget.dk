@@ -64,7 +64,9 @@ def test_read_data_success(
     with patch(
         "unified_pipeline.silver.bnbo_status.pd.read_parquet", return_value=dummy_df
     ) as mock_read_parquet:
-        result_df = bnbo_status_silver.read_data(silver_config.dataset)
+        result_df = bnbo_status_silver._read_bronze_data(
+            silver_config.dataset, silver_config.bucket
+        )
 
     mock_gcs_util.get_gcs_client.return_value.bucket.assert_called_once_with(silver_config.bucket)
     mock_bucket.blob.assert_called_once_with(
@@ -98,7 +100,7 @@ def test_read_data_blob_not_exists(
     mock_bucket.blob.return_value = mock_blob
     mock_gcs_util.get_gcs_client.return_value.bucket.return_value = mock_bucket
 
-    result_df = bnbo_status_silver.read_data(silver_config.dataset)
+    result_df = bnbo_status_silver._read_bronze_data(silver_config.dataset, silver_config.bucket)
 
     assert result_df is None
 
@@ -577,7 +579,7 @@ def test_save_data(
     mock_gcs_util.get_gcs_client.return_value.bucket.return_value = mock_bucket
     current_date = pd.Timestamp.now().strftime("%Y-%m-%d")
     # Call the save_data method
-    bnbo_status_silver._save_data(gdf, silver_config.dataset)
+    bnbo_status_silver._save_data(gdf, silver_config.dataset, silver_config.bucket)
 
     # Check that the blob was created and uploaded correctly
     mock_bucket.blob.assert_called_once_with(f"silver/bnbo_status/{current_date}.parquet")
@@ -598,7 +600,7 @@ def test_save_data_with_empty_dataframe(
     mock_gcs_util.get_gcs_client.return_value.bucket.return_value = mock_bucket
 
     # Call the save_data method
-    bnbo_status_silver._save_data(gdf, silver_config.dataset)
+    bnbo_status_silver._save_data(gdf, silver_config.dataset, silver_config.bucket)
 
     # Check that the blob was not created
     mock_bucket.blob.assert_not_called()
@@ -613,7 +615,7 @@ async def test_run(
     # Mock the read_data and save_data methods
     with (
         patch.object(
-            bnbo_status_silver, "read_data", return_value=pd.DataFrame()
+            bnbo_status_silver, "_read_bronze_data", return_value=pd.DataFrame()
         ) as mock_read_data,
         patch.object(
             bnbo_status_silver, "_process_xml_data", return_value=pd.DataFrame()
@@ -626,7 +628,7 @@ async def test_run(
         await bnbo_status_silver.run()
 
         # Check that the methods were called
-        mock_read_data.assert_called_once_with(silver_config.dataset)
+        mock_read_data.assert_called_once_with(silver_config.dataset, silver_config.bucket)
         mock_process_xml_data.assert_called_once()
         mock_create_dissolved_df.assert_called_once()
         mock_save_data.assert_called()
@@ -641,12 +643,12 @@ async def test_run_with_empty_dataframe(
     """Test the run method with an empty DataFrame."""
     # Mock the read_data and save_data methods
     with (
-        patch.object(bnbo_status_silver, "read_data", return_value=None) as mock_read_data,
+        patch.object(bnbo_status_silver, "_read_bronze_data", return_value=None) as mock_read_data,
     ):
         await bnbo_status_silver.run()
 
         # Check that the methods were called
-        mock_read_data.assert_called_once_with(silver_config.dataset)
+        mock_read_data.assert_called_once_with(silver_config.dataset, silver_config.bucket)
 
 
 @pytest.mark.asyncio
@@ -658,7 +660,7 @@ async def test_run_with_empty_processed_data(
     # Mock the read_data and save_data methods
     with (
         patch.object(
-            bnbo_status_silver, "read_data", return_value=pd.DataFrame()
+            bnbo_status_silver, "_read_bronze_data", return_value=pd.DataFrame()
         ) as mock_read_data,
         patch.object(
             bnbo_status_silver, "_process_xml_data", return_value=None
@@ -667,5 +669,5 @@ async def test_run_with_empty_processed_data(
         await bnbo_status_silver.run()
 
         # Check that the methods were called
-        mock_read_data.assert_called_once_with(silver_config.dataset)
+        mock_read_data.assert_called_once_with(silver_config.dataset, silver_config.bucket)
         mock_process_xml_data.assert_called_once()
