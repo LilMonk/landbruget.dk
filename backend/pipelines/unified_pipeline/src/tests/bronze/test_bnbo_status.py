@@ -48,7 +48,6 @@ def test_bnbo_status_bronze_config() -> None:
     assert config.name == "Danish BNBO Status"
     assert config.dataset == "bnbo_status"
     assert config.url == "https://arealeditering-dist-geo.miljoeportal.dk/geoserver/wfs"
-    assert config.layer == "dai:status_bnbo"
     assert config.bucket == "landbrugsdata-raw-data"
 
 

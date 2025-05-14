@@ -26,10 +26,8 @@ class BNBOStatusBronzeConfig(BaseJobConfig):
         type (str): Type of the data source, in this case "wfs" for Web Feature Service.
         description (str): A brief description of the data source.
         url (str): The endpoint URL for the WFS service.
-        layer (str): The WFS layer name to fetch data from.
         frequency (str): How often the data should be updated.
         bucket (str): Google Cloud Storage bucket name for storing the data.
-        create_dissolved (bool): Whether to create dissolved (merged) geometries.
         batch_size (int): Number of features to fetch in a single request.
         max_concurrent (int): Maximum number of concurrent requests.
         request_timeout (int): Timeout for HTTP requests in seconds.
@@ -44,10 +42,8 @@ class BNBOStatusBronzeConfig(BaseJobConfig):
     type: str = "wfs"
     description: str = "Municipal status for well-near protection areas (BNBO)"
     url: str = "https://arealeditering-dist-geo.miljoeportal.dk/geoserver/wfs"
-    layer: str = "dai:status_bnbo"
     frequency: str = "weekly"
     bucket: str = "landbrugsdata-raw-data"
-    create_dissolved: bool = True
 
     batch_size: int = 100
     max_concurrent: int = 3
