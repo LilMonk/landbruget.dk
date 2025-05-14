@@ -29,7 +29,6 @@ class AgriculturalFieldsBronzeConfig(BaseJobConfig):
     fields_dataset: str = "agricultural_fields"
     blocks_dataset: str = "agricultural_blocks"
     frequency: str = "weekly"
-    enabled: bool = True
     bucket: str = "landbrugsdata-raw-data"
 
     batch_size: int = 20000

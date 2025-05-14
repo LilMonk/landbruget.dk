@@ -40,8 +40,8 @@ def test_bnbo_status_silver_config(silver_config: BNBOStatusSilverConfig) -> Non
     assert silver_config.gml_ns == "{http://www.opengis.net/gml/3.2}"
 
 
-@patch("unified_pipeline.silver.bnbo_status.pd.Timestamp")
-@patch("unified_pipeline.silver.bnbo_status.os.makedirs")
+@patch("unified_pipeline.common.base.pd.Timestamp")
+@patch("unified_pipeline.common.base.os.makedirs")
 def test_read_data_success(
     mock_makedirs: MagicMock,
     mock_timestamp: MagicMock,
@@ -62,7 +62,7 @@ def test_read_data_success(
     dummy_df = pd.DataFrame({"payload": ["<xml></xml>"]})
 
     with patch(
-        "unified_pipeline.silver.bnbo_status.pd.read_parquet", return_value=dummy_df
+        "unified_pipeline.common.base.pd.read_parquet", return_value=dummy_df
     ) as mock_read_parquet:
         result_df = bnbo_status_silver._read_bronze_data(
             silver_config.dataset, silver_config.bucket
