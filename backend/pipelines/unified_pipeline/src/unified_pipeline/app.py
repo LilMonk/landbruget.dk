@@ -80,6 +80,28 @@ def execute(cli_config: cli.CliConfig) -> None:
                 config=AgriculturalFieldsSilverConfig(),
                 gcs_util=gcs_util,
             )
+
+    elif cli_config.source == cli.Source.wetlands:
+        if cli_config.stage == cli.Stage.bronze or cli_config.stage == cli.Stage.all:
+            from unified_pipeline.bronze.wetlands import (
+                WetlandsBronze,
+                WetlandsBronzeConfig,
+            )
+
+            source = WetlandsBronze(
+                config=WetlandsBronzeConfig(),
+                gcs_util=gcs_util,
+            )
+        if cli_config.stage == cli.Stage.silver or cli_config.stage == cli.Stage.all:
+            from unified_pipeline.silver.wetlands import (
+                WetlandsSilver,
+                WetlandsSilverConfig,
+            )
+
+            source = WetlandsSilver(
+                config=WetlandsSilverConfig(),
+                gcs_util=gcs_util,
+            )
     else:
         raise ValueError(f"Source {cli_config.source} and stage {cli_config.stage} not supported.")
 
